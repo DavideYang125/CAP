@@ -3,15 +3,18 @@
 
 using System.Data;
 using System.Diagnostics;
+using System.Threading;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.DependencyInjection;
 
 // ReSharper disable once CheckNamespace
 namespace DotNetCore.CAP
 {
     public class MySqlCapTransaction : CapTransactionBase
     {
-        public MySqlCapTransaction(IDispatcher dispatcher) : base(dispatcher)
+        public MySqlCapTransaction(
+            IDispatcher dispatcher) : base(dispatcher)
         {
         }
 
@@ -28,7 +31,6 @@ namespace DotNetCore.CAP
                     dbContextTransaction.Commit();
                     break;
             }
-
             Flush();
         }
 
@@ -50,6 +52,7 @@ namespace DotNetCore.CAP
         public override void Dispose()
         {
             (DbTransaction as IDbTransaction)?.Dispose();
+            DbTransaction = null;
         }
     }
 
@@ -84,7 +87,8 @@ namespace DotNetCore.CAP
             ICapPublisher publisher, bool autoCommit = false)
         {
             var trans = database.BeginTransaction();
-            var capTrans = publisher.Transaction.Begin(trans, autoCommit);
+            publisher.Transaction.Value = publisher.ServiceProvider.GetService<CapTransactionBase>();
+            var capTrans = publisher.Transaction.Value.Begin(trans, autoCommit);
             return new CapEFDbTransaction(capTrans);
         }
 
@@ -104,7 +108,8 @@ namespace DotNetCore.CAP
             }
 
             var dbTransaction = dbConnection.BeginTransaction();
-            return publisher.Transaction.Begin(dbTransaction, autoCommit);
+            publisher.Transaction.Value = publisher.ServiceProvider.GetService<CapTransactionBase>();
+            return publisher.Transaction.Value.Begin(dbTransaction, autoCommit);
         }
     }
 }

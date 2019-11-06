@@ -4,9 +4,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Reflection;
 using System.Threading;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
+using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 
 namespace DotNetCore.CAP.RabbitMQ
@@ -18,36 +19,41 @@ namespace DotNetCore.CAP.RabbitMQ
         private readonly ILogger<ConnectionChannelPool> _logger;
         private readonly ConcurrentQueue<IModel> _pool;
         private IConnection _connection;
+        private static readonly object SLock = new object();
 
         private int _count;
         private int _maxSize;
 
-        public ConnectionChannelPool(ILogger<ConnectionChannelPool> logger,
-            CapOptions capOptions,
-            RabbitMQOptions options)
+        public ConnectionChannelPool(
+            ILogger<ConnectionChannelPool> logger,
+            IOptions<CapOptions> capOptionsAccessor,
+            IOptions<RabbitMQOptions> optionsAccessor)
         {
             _logger = logger;
             _maxSize = DefaultPoolSize;
             _pool = new ConcurrentQueue<IModel>();
+
+            var capOptions = capOptionsAccessor.Value;
+            var options = optionsAccessor.Value;
+
             _connectionActivator = CreateConnection(options);
 
-            HostAddress = options.HostName + ":" + options.Port;
+            HostAddress = $"{options.HostName}:{options.Port}";
+            Exchange = "v1" == capOptions.Version ? options.ExchangeName : $"{options.ExchangeName}.{capOptions.Version}";
 
-            if (CapOptions.DefaultVersion == capOptions.Version)
-            {
-                Exchange = options.ExchangeName;
-            }
-            else
-            {
-                Exchange = options.ExchangeName + "." + capOptions.Version;
-            }
-
-            _logger.LogDebug("RabbitMQ configuration of CAP :\r\n {0}", JsonConvert.SerializeObject(options, Formatting.Indented));
+            _logger.LogDebug($"RabbitMQ configuration:'HostName:{options.HostName}, Port:{options.Port}, UserName:{options.UserName}, Password:{options.Password}, ExchangeName:{options.ExchangeName}'");
         }
 
         IModel IConnectionChannelPool.Rent()
         {
-            return Rent();
+            lock (SLock)
+            {
+                while (_count > _maxSize)
+                {
+                    Thread.SpinWait(1);
+                }
+                return Rent();
+            }
         }
 
         bool IConnectionChannelPool.Return(IModel connection)
@@ -83,25 +89,26 @@ namespace DotNetCore.CAP.RabbitMQ
 
         private static Func<IConnection> CreateConnection(RabbitMQOptions options)
         {
+            var serviceName = Assembly.GetEntryAssembly()?.GetName().Name.ToLower();
+
             var factory = new ConnectionFactory
             {
                 UserName = options.UserName,
                 Port = options.Port,
                 Password = options.Password,
-                VirtualHost = options.VirtualHost,
-                RequestedConnectionTimeout = options.RequestedConnectionTimeout,
-                SocketReadTimeout = options.SocketReadTimeout,
-                SocketWriteTimeout = options.SocketWriteTimeout
+                VirtualHost = options.VirtualHost
             };
 
             if (options.HostName.Contains(","))
             {
+                options.ConnectionFactoryOptions?.Invoke(factory);
                 return () => factory.CreateConnection(
-                    options.HostName.Split(new[] { "," }, StringSplitOptions.RemoveEmptyEntries));
+                    options.HostName.Split(new[] { "," }, StringSplitOptions.RemoveEmptyEntries), serviceName);
             }
 
             factory.HostName = options.HostName;
-            return () => factory.CreateConnection();
+            options.ConnectionFactoryOptions?.Invoke(factory);
+            return () => factory.CreateConnection(serviceName);
         }
 
         private void RabbitMQ_ConnectionShutdown(object sender, ShutdownEventArgs e)
@@ -120,7 +127,16 @@ namespace DotNetCore.CAP.RabbitMQ
                 return model;
             }
 
-            model = GetConnection().CreateModel();
+            try
+            {
+                model = GetConnection().CreateModel();
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "RabbitMQ channel model create failed!");
+                Console.WriteLine(e);
+                throw;
+            }
 
             return model;
         }

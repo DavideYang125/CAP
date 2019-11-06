@@ -10,6 +10,7 @@ using DotNetCore.CAP.Abstractions;
 using DotNetCore.CAP.Models;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace DotNetCore.CAP.PostgreSql
@@ -20,7 +21,7 @@ namespace DotNetCore.CAP.PostgreSql
 
         public PostgreSqlPublisher(IServiceProvider provider) : base(provider)
         {
-            _options = provider.GetService<PostgreSqlOptions>();
+            _options = provider.GetService<IOptions<PostgreSqlOptions>>().Value;
         }
 
         public async Task PublishCallbackAsync(CapPublishedMessage message)
@@ -28,10 +29,10 @@ namespace DotNetCore.CAP.PostgreSql
             await PublishAsyncInternal(message);
         }
 
-        protected override async Task ExecuteAsync(CapPublishedMessage message, ICapTransaction transaction,
+        protected override async Task ExecuteAsync(CapPublishedMessage message, ICapTransaction transaction = null,
             CancellationToken cancel = default(CancellationToken))
         {
-            if (NotUseTransaction)
+            if (transaction == null)
             {
                 using (var connection = InitDbConnection())
                 {

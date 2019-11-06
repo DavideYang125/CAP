@@ -2,11 +2,12 @@
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
-using System.Text;
 using System.Threading.Tasks;
+using Confluent.Kafka;
 using DotNetCore.CAP.Internal;
 using DotNetCore.CAP.Processor.States;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DotNetCore.CAP.Kafka
 {
@@ -16,32 +17,38 @@ namespace DotNetCore.CAP.Kafka
         private readonly ILogger _logger;
 
         public KafkaPublishMessageSender(
-            CapOptions options, IStateChanger stateChanger, IStorageConnection connection,
-            IConnectionPool connectionPool, ILogger<KafkaPublishMessageSender> logger)
+            ILogger<KafkaPublishMessageSender> logger, 
+            IOptions<CapOptions> options,
+            IStorageConnection connection,
+            IConnectionPool connectionPool, 
+            IStateChanger stateChanger)
             : base(logger, options, connection, stateChanger)
         {
             _logger = logger;
             _connectionPool = connectionPool;
-            ServersAddress = _connectionPool.ServersAddress;
         }
+
+        protected override string ServersAddress => _connectionPool.ServersAddress;
 
         public override async Task<OperateResult> PublishAsync(string keyName, string content)
         {
-            var producer = _connectionPool.Rent();
+            var producer = _connectionPool.RentProducer();
 
             try
             {
-                var contentBytes = Encoding.UTF8.GetBytes(content);
-                var message = await producer.ProduceAsync(keyName, null, contentBytes);
-
-                if (message.Error.HasError)
+                var result = await producer.ProduceAsync(keyName, new Message<Null, string>()
                 {
-                    throw new PublisherSentFailedException(message.Error.ToString());
+                    Value = content
+                });
+
+                if (result.Status == PersistenceStatus.Persisted || result.Status == PersistenceStatus.PossiblyPersisted)
+                {
+                    _logger.LogDebug($"kafka topic message [{keyName}] has been published.");
+
+                    return OperateResult.Success;
                 }
 
-                _logger.LogDebug($"kafka topic message [{keyName}] has been published.");
-
-                return OperateResult.Success;
+                throw new PublisherSentFailedException("kafka message persisted failed!");
             }
             catch (Exception ex)
             {

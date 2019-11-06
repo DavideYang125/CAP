@@ -2,7 +2,6 @@
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
-using System.Collections.Generic;
 using DotNetCore.CAP;
 using DotNetCore.CAP.Abstractions;
 using DotNetCore.CAP.Internal;
@@ -11,7 +10,6 @@ using DotNetCore.CAP.Processor.States;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.DependencyInjection
@@ -21,6 +19,8 @@ namespace Microsoft.Extensions.DependencyInjection
     /// </summary>
     public static class ServiceCollectionExtensions
     {
+        internal static IServiceCollection ServiceCollection;
+
         /// <summary>
         /// Adds and configures the consistence services for the consistency.
         /// </summary>
@@ -34,10 +34,9 @@ namespace Microsoft.Extensions.DependencyInjection
                 throw new ArgumentNullException(nameof(setupAction));
             }
 
-            services.TryAddSingleton<CapMarkerService>();
+            ServiceCollection = services;
 
-            //Consumer service
-            AddSubscribeServices(services);
+            services.TryAddSingleton<CapMarkerService>();
 
             //Serializer and model binder
             services.TryAddSingleton<IContentSerializer, JsonContentSerializer>();
@@ -57,7 +56,7 @@ namespace Microsoft.Extensions.DependencyInjection
             services.TryAddSingleton<IStateChanger, StateChanger>();
 
             //Queue's message processor
-            services.TryAddSingleton<NeedRetryMessageProcessor>();
+            services.TryAddSingleton<MessageNeedToRetryProcessor>();
             services.TryAddSingleton<TransportCheckProcessor>();
 
             //Sender and Executors   
@@ -72,32 +71,13 @@ namespace Microsoft.Extensions.DependencyInjection
             {
                 serviceExtension.AddServices(services);
             }
-            services.AddSingleton(options);
+            services.Configure(setupAction);
 
-            //Startup and Middleware
-            services.AddTransient<IHostedService, DefaultBootstrapper>();
+            //Startup and Hosted
             services.AddTransient<IStartupFilter, CapStartupFilter>();
+            services.AddHostedService<DefaultBootstrapper>();
 
             return new CapBuilder(services);
-        }
-
-        private static void AddSubscribeServices(IServiceCollection services)
-        {
-            var consumerListenerServices = new List<KeyValuePair<Type, Type>>();
-            foreach (var rejectedServices in services)
-            {
-                if (rejectedServices.ImplementationType != null
-                    && typeof(ICapSubscribe).IsAssignableFrom(rejectedServices.ImplementationType))
-                {
-                    consumerListenerServices.Add(new KeyValuePair<Type, Type>(typeof(ICapSubscribe),
-                        rejectedServices.ImplementationType));
-                }
-            }
-
-            foreach (var service in consumerListenerServices)
-            {
-                services.TryAddEnumerable(ServiceDescriptor.Transient(service.Key, service.Value));
-            }
         }
     }
 }

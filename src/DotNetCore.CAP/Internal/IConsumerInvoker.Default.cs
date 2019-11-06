@@ -2,6 +2,8 @@
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
 using System;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using DotNetCore.CAP.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,8 +30,10 @@ namespace DotNetCore.CAP.Internal
             _logger = loggerFactory.CreateLogger<DefaultConsumerInvoker>();
         }
 
-        public async Task<ConsumerExecutedResult> InvokeAsync(ConsumerContext context)
+        public async Task<ConsumerExecutedResult> InvokeAsync(ConsumerContext context, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             _logger.LogDebug("Executing consumer Topic: {0}", context.ConsumerDescriptor.MethodInfo.Name);
 
             var executor = ObjectMethodExecutor.Create(
@@ -39,8 +43,20 @@ namespace DotNetCore.CAP.Internal
             using (var scope = _serviceProvider.CreateScope())
             {
                 var provider = scope.ServiceProvider;
-                var serviceType = context.ConsumerDescriptor.ImplTypeInfo.AsType();
-                var obj = ActivatorUtilities.GetServiceOrCreateInstance(provider, serviceType);
+                var srvType = context.ConsumerDescriptor.ServiceTypeInfo?.AsType();
+                var implType = context.ConsumerDescriptor.ImplTypeInfo.AsType();
+
+                object obj = null;
+
+                if (srvType != null)
+                {
+                    obj = provider.GetServices(srvType).FirstOrDefault(o => o.GetType() == implType);
+                }
+
+                if (obj == null)
+                {
+                    obj = ActivatorUtilities.GetServiceOrCreateInstance(provider, implType);
+                }
 
                 var jsonContent = context.DeliverMessage.Content;
                 var message = _messagePacker.UnPack(jsonContent);

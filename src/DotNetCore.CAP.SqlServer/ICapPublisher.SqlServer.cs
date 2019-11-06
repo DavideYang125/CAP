@@ -11,6 +11,7 @@ using DotNetCore.CAP.Abstractions;
 using DotNetCore.CAP.Models;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace DotNetCore.CAP.SqlServer
 {
@@ -20,7 +21,7 @@ namespace DotNetCore.CAP.SqlServer
 
         public SqlServerPublisher(IServiceProvider provider) : base(provider)
         {
-            _options = ServiceProvider.GetService<SqlServerOptions>();
+            _options = ServiceProvider.GetService<IOptions<SqlServerOptions>>().Value;
         }
 
         public async Task PublishCallbackAsync(CapPublishedMessage message)
@@ -28,10 +29,10 @@ namespace DotNetCore.CAP.SqlServer
             await PublishAsyncInternal(message);
         }
 
-        protected override async Task ExecuteAsync(CapPublishedMessage message, ICapTransaction transaction,
+        protected override async Task ExecuteAsync(CapPublishedMessage message, ICapTransaction transaction = null,
             CancellationToken cancel = default(CancellationToken))
         {
-            if (NotUseTransaction)
+            if (transaction == null)
             {
                 using (var connection = new SqlConnection(_options.ConnectionString))
                 {

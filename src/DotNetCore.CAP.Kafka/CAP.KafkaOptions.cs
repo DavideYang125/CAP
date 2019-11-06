@@ -20,14 +20,14 @@ namespace DotNetCore.CAP
         /// Topic configuration parameters are specified via the "default.topic.config" sub-dictionary config parameter.
         /// </para>
         /// </summary>
-        public readonly ConcurrentDictionary<string, object> MainConfig;
+        public readonly ConcurrentDictionary<string, string> MainConfig;
 
-        private IEnumerable<KeyValuePair<string, object>> _kafkaConfig;
+        private IEnumerable<KeyValuePair<string, string>> _kafkaConfig;
 
 
         public KafkaOptions()
         {
-            MainConfig = new ConcurrentDictionary<string, object>();
+            MainConfig = new ConcurrentDictionary<string, string>();
         }
 
         /// <summary>
@@ -43,7 +43,7 @@ namespace DotNetCore.CAP
         /// </summary>
         public string Servers { get; set; }
 
-        internal IEnumerable<KeyValuePair<string, object>> AsKafkaConfig()
+        internal IEnumerable<KeyValuePair<string, string>> AsKafkaConfig()
         {
             if (_kafkaConfig == null)
             {
@@ -54,7 +54,6 @@ namespace DotNetCore.CAP
 
                 MainConfig["bootstrap.servers"] = Servers;
                 MainConfig["queue.buffering.max.ms"] = "10";
-                MainConfig["socket.blocking.max.ms"] = "10";
                 MainConfig["enable.auto.commit"] = "false";
                 MainConfig["log.connection.close"] = "false";
                 MainConfig["request.timeout.ms"] = "3000";

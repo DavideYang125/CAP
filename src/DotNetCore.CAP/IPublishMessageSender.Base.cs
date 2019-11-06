@@ -11,6 +11,7 @@ using DotNetCore.CAP.Models;
 using DotNetCore.CAP.Processor;
 using DotNetCore.CAP.Processor.States;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DotNetCore.CAP
 {
@@ -21,7 +22,7 @@ namespace DotNetCore.CAP
         private readonly CapOptions _options;
         private readonly IStateChanger _stateChanger;
 
-        protected string ServersAddress { get; set; }
+        protected abstract string ServersAddress { get; }
 
         // diagnostics listener
         // ReSharper disable once InconsistentNaming
@@ -30,11 +31,11 @@ namespace DotNetCore.CAP
 
         protected BasePublishMessageSender(
             ILogger logger,
-            CapOptions options,
+            IOptions<CapOptions> options,
             IStorageConnection connection,
             IStateChanger stateChanger)
         {
-            _options = options;
+            _options = options.Value;
             _connection = connection;
             _stateChanger = stateChanger;
             _logger = logger;
@@ -44,23 +45,20 @@ namespace DotNetCore.CAP
 
         public async Task<OperateResult> SendAsync(CapPublishedMessage message)
         {
-            return await Task.Run(async () =>
+            bool retry;
+            OperateResult result;
+            do
             {
-                bool retry;
-                OperateResult result;
-                do
+                var executedResult = await SendWithoutRetryAsync(message);
+                result = executedResult.Item2;
+                if (result == OperateResult.Success)
                 {
-                    var executedResult = await SendWithoutRetryAsync(message);
-                    result = executedResult.Item2;
-                    if (result == OperateResult.Success)
-                    {
-                        return result;
-                    }
-                    retry = executedResult.Item1;
-                } while (retry);
+                    return result;
+                }
+                retry = executedResult.Item1;
+            } while (retry);
 
-                return result;
-            });
+            return result;
         }
 
         private async Task<(bool, OperateResult)> SendWithoutRetryAsync(CapPublishedMessage message)
@@ -192,7 +190,8 @@ namespace DotNetCore.CAP
                 message.Content,
                 ex,
                 startTime,
-                du);
+                du,
+                message.Retries + 1);
 
             s_diagnosticListener.WritePublishError(eventData);
         }

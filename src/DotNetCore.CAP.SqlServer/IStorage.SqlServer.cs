@@ -11,20 +11,22 @@ using Dapper;
 using DotNetCore.CAP.Dashboard;
 using DotNetCore.CAP.SqlServer.Diagnostics;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DotNetCore.CAP.SqlServer
 {
     public class SqlServerStorage : IStorage
     {
-        private readonly CapOptions _capOptions;
-        private readonly DiagnosticProcessorObserver _diagnosticProcessorObserver;
-        private readonly IDbConnection _existingConnection = null;
         private readonly ILogger _logger;
-        private readonly SqlServerOptions _options;
+        private readonly IOptions<CapOptions> _capOptions;
+        private readonly IOptions<SqlServerOptions> _options;
+        private readonly IDbConnection _existingConnection = null;
+        private readonly DiagnosticProcessorObserver _diagnosticProcessorObserver;
 
-        public SqlServerStorage(ILogger<SqlServerStorage> logger,
-            CapOptions capOptions,
-            SqlServerOptions options,
+        public SqlServerStorage(
+            ILogger<SqlServerStorage> logger,
+            IOptions<CapOptions> capOptions,
+            IOptions<SqlServerOptions> options,
             DiagnosticProcessorObserver diagnosticProcessorObserver)
         {
             _options = options;
@@ -50,9 +52,9 @@ namespace DotNetCore.CAP.SqlServer
                 return;
             }
 
-            var sql = CreateDbTablesScript(_options.Schema);
+            var sql = CreateDbTablesScript(_options.Value.Schema);
 
-            using (var connection = new SqlConnection(_options.ConnectionString))
+            using (var connection = new SqlConnection(_options.Value.ConnectionString))
             {
                 await connection.ExecuteAsync(sql);
             }
@@ -127,7 +129,7 @@ END;";
 
         internal IDbConnection CreateAndOpenConnection()
         {
-            var connection = _existingConnection ?? new SqlConnection(_options.ConnectionString);
+            var connection = _existingConnection ?? new SqlConnection(_options.Value.ConnectionString);
 
             if (connection.State == ConnectionState.Closed)
             {
